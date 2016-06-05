@@ -162,12 +162,17 @@ else:
 
 if qutip.settings.num_cpus == 0:
     # if num_cpu is 0 set it to the available number of cores
-    from qutip.hardware_info import hardware_info
-    info = hardware_info()
+    import qutip.hardware_info
+    info =  qutip.hardware_info.hardware_info()
     if 'cpus' in info:
         qutip.settings.num_cpus = info['cpus']
     else:
         qutip.settings.num_cpus = multiprocessing.cpu_count()
+
+
+# Find MKL library if it exists
+import qutip.mkl
+
 
 
 # -----------------------------------------------------------------------------
@@ -183,14 +188,6 @@ except:
 else:
     qutip.settings.fortran = True
 
-# check for scikits.umfpack
-try:
-    import scikits.umfpack as umfpack
-except:
-    qutip.settings.umfpack = False
-else:
-    qutip.settings.umfpack = True
-    del umfpack
 # -----------------------------------------------------------------------------
 # Check that import modules are compatible with requested configuration
 #
@@ -260,7 +257,7 @@ from qutip.steadystate import *
 from qutip.correlation import *
 from qutip.countstat import *
 from qutip.rcsolve import *
-from qutip.hsolve import *
+from qutip.nonmarkov import *
 
 # quantum information
 from qutip.qip import *

@@ -93,7 +93,7 @@ import warnings
 
 # QuTiP
 from qutip import Qobj
-import qutip.logging as logging
+import qutip.logging_utils as logging
 logger = logging.get_logger()
 # QuTiP control modules
 import qutip.control.optimconfig as optimconfig
@@ -130,7 +130,7 @@ def optimize_pulse(
         fid_err_targ=1e-10, min_grad=1e-10,
         max_iter=500, max_wall_time=180,
         alg='GRAPE', alg_params=None,
-        optim_method='DEF', method_params=None,
+        optim_params=None, optim_method='DEF', method_params=None,
         optim_alg=None, max_metric_corr=None, accuracy_factor=None,
         dyn_type='GEN_MAT', dyn_params=None,
         prop_type='DEF', prop_params=None,
@@ -219,6 +219,13 @@ def optimize_pulse(
 
     alg_params : Dictionary
         options that are specific to the algorithm see above
+        
+    optim_params : Dictionary
+        The key value pairs are the attribute name and value
+        used to set attribute values
+        Note: attributes are created if they do not exist already,
+        and are overwritten if they do.
+        Note: method_params are applied afterwards and so may override these
         
     optim_method : string
         a scipy.optimize.minimize method that will be used to optimise
@@ -339,7 +346,7 @@ def optimize_pulse(
 
     log_level : integer
         level of messaging output from the logger.
-        Options are attributes of qutip.logging,
+        Options are attributes of qutip.logging_utils,
         in decreasing levels of messaging, are:
         DEBUG_INTENSE, DEBUG_VERBOSE, DEBUG, INFO, WARN, ERROR, CRITICAL
         Anything WARN or above is effectively 'quiet' execution,
@@ -438,7 +445,7 @@ def optimize_pulse(
         amp_lbound=amp_lbound, amp_ubound=amp_ubound,
         fid_err_targ=fid_err_targ, min_grad=min_grad,
         max_iter=max_iter, max_wall_time=max_wall_time,
-        alg=alg, alg_params=alg_params,
+        alg=alg, alg_params=alg_params, optim_params=optim_params,
         optim_method=optim_method, method_params=method_params,
         dyn_type=dyn_type, dyn_params=dyn_params, 
         prop_type=prop_type, prop_params=prop_params,
@@ -510,9 +517,10 @@ def optimize_pulse_unitary(
         fid_err_targ=1e-10, min_grad=1e-10,
         max_iter=500, max_wall_time=180,
         alg='GRAPE', alg_params=None,
-        optim_method='DEF', method_params=None,
+        optim_params=None, optim_method='DEF', method_params=None,
         optim_alg=None, max_metric_corr=None, accuracy_factor=None,
         phase_option='PSU', 
+        dyn_params=None, prop_params=None, fid_params=None,
         tslot_type='DEF', tslot_params=None,
         amp_update_mode=None,
         init_pulse_type='DEF', init_pulse_params=None,
@@ -603,6 +611,13 @@ def optimize_pulse_unitary(
     alg_params : Dictionary
         options that are specific to the algorithm see above
         
+    optim_params : Dictionary
+        The key value pairs are the attribute name and value
+        used to set attribute values
+        Note: attributes are created if they do not exist already,
+        and are overwritten if they do.
+        Note: method_params are applied afterwards and so may override these
+        
     optim_method : string
         a scipy.optimize.minimize method that will be used to optimise
         the pulse for minimum fidelity error
@@ -637,6 +652,21 @@ def optimize_pulse_unitary(
             PSU - global phase ignored
             SU - global phase included
 
+    dyn_params : dict
+        Parameters for the Dynamics object
+        The key value pairs are assumed to be attribute name value pairs
+        They applied after the object is created
+
+    prop_params : dict
+        Parameters for the PropagatorComputer object
+        The key value pairs are assumed to be attribute name value pairs
+        They applied after the object is created
+
+    fid_params : dict
+        Parameters for the FidelityComputer object
+        The key value pairs are assumed to be attribute name value pairs
+        They applied after the object is created
+        
     tslot_type : string
         Method for computing the dynamics generators, propagators and 
         evolution in the timeslots.
@@ -689,7 +719,7 @@ def optimize_pulse_unitary(
 
     log_level : integer
         level of messaging output from the logger.
-        Options are attributes of qutip.logging,
+        Options are attributes of qutip.logging_utils,
         in decreasing levels of messaging, are:
         DEBUG_INTENSE, DEBUG_VERBOSE, DEBUG, INFO, WARN, ERROR, CRITICAL
         Anything WARN or above is effectively 'quiet' execution,
@@ -776,7 +806,12 @@ def optimize_pulse_unitary(
     # phase_option is still valid for this method
     # pass it via the fid_params
     if not phase_option is None:
-        fid_params = {'phase_option':phase_option}
+        if fid_params is None:
+            fid_params = {'phase_option':phase_option}
+        else:
+            if not 'phase_option' in fid_params:
+                fid_params['phase_option'] = phase_option
+            
             
     return optimize_pulse(
             drift=H_d, ctrls=H_c, initial=U_0, target=U_targ,
@@ -784,9 +819,10 @@ def optimize_pulse_unitary(
             amp_lbound=amp_lbound, amp_ubound=amp_ubound,
             fid_err_targ=fid_err_targ, min_grad=min_grad,
             max_iter=max_iter, max_wall_time=max_wall_time,
-            alg=alg, alg_params=alg_params,
+            alg=alg, alg_params=alg_params, optim_params=optim_params,
             optim_method=optim_method, method_params=method_params,
-            dyn_type='UNIT', fid_params=fid_params,
+            dyn_type='UNIT', dyn_params=dyn_params,
+            prop_params=prop_params, fid_params=fid_params,
             init_pulse_type=init_pulse_type, init_pulse_params=init_pulse_params,
             pulse_scaling=pulse_scaling, pulse_offset=pulse_offset,
             ramping_pulse_type=ramping_pulse_type, 
@@ -802,7 +838,7 @@ def opt_pulse_crab(
         max_iter=500, max_wall_time=180,
         alg_params=None,
         num_coeffs=None, init_coeff_scaling=1.0, 
-        optim_method='fmin', method_params=None,
+        optim_params=None, optim_method='fmin', method_params=None,
         dyn_type='GEN_MAT', dyn_params=None,
         prop_type='DEF', prop_params=None,
         fid_type='DEF', fid_params=None,
@@ -879,6 +915,13 @@ def opt_pulse_crab(
 
     alg_params : Dictionary
         options that are specific to the algorithm see above
+        
+    optim_params : Dictionary
+        The key value pairs are the attribute name and value
+        used to set attribute values
+        Note: attributes are created if they do not exist already,
+        and are overwritten if they do.
+        Note: method_params are applied afterwards and so may override these
 
     coeff_scaling : float
         Linear scale factor for the random basis coefficients
@@ -995,7 +1038,7 @@ def opt_pulse_crab(
 
     log_level : integer
         level of messaging output from the logger.
-        Options are attributes of qutip.logging,
+        Options are attributes of qutip.logging_utils,
         in decreasing levels of messaging, are:
         DEBUG_INTENSE, DEBUG_VERBOSE, DEBUG, INFO, WARN, ERROR, CRITICAL
         Anything WARN or above is effectively 'quiet' execution,
@@ -1063,7 +1106,7 @@ def opt_pulse_crab(
         amp_lbound=amp_lbound, amp_ubound=amp_ubound,
         fid_err_targ=fid_err_targ, min_grad=0.0,
         max_iter=max_iter, max_wall_time=max_wall_time,
-        alg='CRAB', alg_params=alg_params,
+        alg='CRAB', alg_params=alg_params, optim_params=optim_params,
         optim_method=optim_method, method_params=method_params,
         dyn_type=dyn_type, dyn_params=dyn_params, 
         prop_type=prop_type, prop_params=prop_params,
@@ -1083,8 +1126,9 @@ def opt_pulse_crab_unitary(
         max_iter=500, max_wall_time=180,
         alg_params=None,
         num_coeffs=None, init_coeff_scaling=1.0, 
-        optim_method='fmin', method_params=None,
+        optim_params=None, optim_method='fmin', method_params=None,
         phase_option='PSU', 
+        dyn_params=None, prop_params=None, fid_params=None,
         tslot_type='DEF', tslot_params=None,
         guess_pulse_type=None, guess_pulse_params=None,
         guess_pulse_scaling=1.0, guess_pulse_offset=0.0,
@@ -1163,6 +1207,13 @@ def opt_pulse_crab_unitary(
 
     alg_params : Dictionary
         options that are specific to the algorithm see above
+        
+    optim_params : Dictionary
+        The key value pairs are the attribute name and value
+        used to set attribute values
+        Note: attributes are created if they do not exist already,
+        and are overwritten if they do.
+        Note: method_params are applied afterwards and so may override these
 
     coeff_scaling : float
         Linear scale factor for the random basis coefficients
@@ -1200,6 +1251,21 @@ def opt_pulse_crab_unitary(
             PSU - global phase ignored
             SU - global phase included
 
+    dyn_params : dict
+        Parameters for the Dynamics object
+        The key value pairs are assumed to be attribute name value pairs
+        They applied after the object is created
+
+    prop_params : dict
+        Parameters for the PropagatorComputer object
+        The key value pairs are assumed to be attribute name value pairs
+        They applied after the object is created
+
+    fid_params : dict
+        Parameters for the FidelityComputer object
+        The key value pairs are assumed to be attribute name value pairs
+        They applied after the object is created
+        
     tslot_type : string
         Method for computing the dynamics generators, propagators and 
         evolution in the timeslots.
@@ -1252,7 +1318,7 @@ def opt_pulse_crab_unitary(
 
     log_level : integer
         level of messaging output from the logger.
-        Options are attributes of qutip.logging,
+        Options are attributes of qutip.logging_utils,
         in decreasing levels of messaging, are:
         DEBUG_INTENSE, DEBUG_VERBOSE, DEBUG, INFO, WARN, ERROR, CRITICAL
         Anything WARN or above is effectively 'quiet' execution,
@@ -1320,9 +1386,10 @@ def opt_pulse_crab_unitary(
         amp_lbound=amp_lbound, amp_ubound=amp_ubound,
         fid_err_targ=fid_err_targ, min_grad=0.0,
         max_iter=max_iter, max_wall_time=max_wall_time,
-        alg='CRAB', alg_params=alg_params,
+        alg='CRAB', alg_params=alg_params, optim_params=optim_params,
         optim_method=optim_method, method_params=method_params,
         phase_option=phase_option,
+        dyn_params=dyn_params, prop_params=prop_params, fid_params=fid_params,
         tslot_type=tslot_type, tslot_params=tslot_params,
         init_pulse_type=guess_pulse_type, 
         init_pulse_params=guess_pulse_params,
@@ -1337,7 +1404,7 @@ def create_pulse_optimizer(
         fid_err_targ=1e-10, min_grad=1e-10,
         max_iter=500, max_wall_time=180,
         alg='GRAPE', alg_params=None,
-        optim_method='DEF', method_params=None,
+        optim_params=None, optim_method='DEF', method_params=None,
         optim_alg=None, max_metric_corr=None, accuracy_factor=None,
         dyn_type='GEN_MAT', dyn_params=None,
         prop_type='DEF', prop_params=None,
@@ -1424,6 +1491,13 @@ def create_pulse_optimizer(
 
     alg_params : Dictionary
         options that are specific to the algorithm see above
+        
+    optim_params : Dictionary
+        The key value pairs are the attribute name and value
+        used to set attribute values
+        Note: attributes are created if they do not exist already,
+        and are overwritten if they do.
+        Note: method_params are applied afterwards and so may override these
         
     optim_method : string
         a scipy.optimize.minimize method that will be used to optimise
@@ -1544,14 +1618,13 @@ def create_pulse_optimizer(
     
     log_level : integer
         level of messaging output from the logger.
-        Options are attributes of qutip.logging,
+        Options are attributes of qutip.logging_utils,
         in decreasing levels of messaging, are:
         DEBUG_INTENSE, DEBUG_VERBOSE, DEBUG, INFO, WARN, ERROR, CRITICAL
         Anything WARN or above is effectively 'quiet' execution,
         assuming everything runs as expected.
         The default NOTSET implies that the level will be taken from
         the QuTiP settings file, which by default is WARN
-        Note value should be set using set_log_level
 
     gen_stats : boolean
         if set to True then statistics for the optimisation
@@ -1572,29 +1645,19 @@ def create_pulse_optimizer(
     # check parameters
     if not isinstance(drift, Qobj):
         raise TypeError("drift must be a Qobj")
-    else:
-        drift = drift.full()
 
     if not isinstance(ctrls, (list, tuple)):
         raise TypeError("ctrls should be a list of Qobj")
     else:
-        j = 0
         for ctrl in ctrls:
             if not isinstance(ctrl, Qobj):
                 raise TypeError("ctrls should be a list of Qobj")
-            else:
-                ctrls[j] = ctrl.full()
-                j += 1
 
     if not isinstance(initial, Qobj):
         raise TypeError("initial must be a Qobj")
-    else:
-        initial = initial.full()
 
     if not isinstance(target, Qobj):
         raise TypeError("target must be a Qobj")
-    else:
-        target = target.full()
         
     # Deprecated parameter management
     if not optim_alg is None:
@@ -1743,6 +1806,11 @@ def create_pulse_optimizer(
     else:
         raise errors.UsageError("No option for fid_type: " + fid_type)
     dyn.fid_computer.apply_params(fid_params)
+    
+    # Currently the only working option for tslot computer is 
+    # TSlotCompUpdateAll.
+    # so just apply the parameters
+    dyn.tslot_computer.apply_params(tslot_params)    
 
     # Create the Optimiser instance
     optim_method_up = _upper_safe(optim_method)
@@ -1773,6 +1841,7 @@ def create_pulse_optimizer(
     optim.method = optim_method
     optim.amp_lbound = amp_lbound
     optim.amp_ubound = amp_ubound
+    optim.apply_params(optim_params)
     
     # Create the TerminationConditions instance
     tc = termcond.TerminationConditions()
@@ -1781,6 +1850,7 @@ def create_pulse_optimizer(
     tc.max_iterations = max_iter
     tc.max_wall_time = max_wall_time
     optim.termination_conditions = tc
+    
     
     optim.apply_method_params(method_params)
 
@@ -1819,7 +1889,7 @@ def create_pulse_optimizer(
         dyn.tau = tau
 
     # this function is called, so that the num_ctrls attribute will be set
-    n_ctrls = dyn.get_num_ctrls()
+    n_ctrls = dyn.num_ctrls
 
     ramping_pgen = None
     if ramping_pulse_type:
@@ -1900,13 +1970,7 @@ def create_pulse_optimizer(
         pgen.offset = pulse_offset
         pgen.lbound = amp_lbound
         pgen.ubound = amp_ubound
-        if ramping_pgen:
-            crab_pgen.ramping_pulse = ramping_pgen.gen_pulse()
 
-        # If the pulse is a periodic type, then set the pulse to be one complete
-        # wave
-        if isinstance(pgen, pulsegen.PulseGenPeriodic):
-            pgen.num_waves = 1.0
         optim.pulse_generator = pgen
 
     if log_level <= logging.DEBUG:

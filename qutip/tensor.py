@@ -34,7 +34,9 @@
 Module for the creation of composite quantum objects via the tensor product.
 """
 
-__all__ = ['tensor', 'super_tensor', 'composite', 'tensor_contract']
+__all__ = [
+    'tensor', 'super_tensor', 'composite', 'tensor_swap', 'tensor_contract'
+]
 
 import numpy as np
 import scipy.sparse as sp
@@ -42,6 +44,10 @@ import scipy.sparse as sp
 from qutip.qobj import Qobj
 from qutip.permute import reshuffle
 from qutip.superoperator import operator_to_vector
+from qutip.dimensions import (
+    flatten, enumerate_flat, unflatten, deep_remove,
+    dims_to_tensor_shape, dims_idxs_to_tensor_idxs
+)
 
 import qutip.settings
 import qutip.superop_reps  # Avoid circular dependency here.
@@ -248,108 +254,6 @@ def composite(*args):
         ))
 
 
-def flatten(l):
-    """Flattens a list of lists to the first level.
-
-    Given a list containing a mix of scalars and lists,
-    flattens down to a list of the scalars within the original
-    list.
-
-    Examples
-    --------
-
-    >>> print(flatten([[[0], 1], 2]))
-    [0, 1, 2]
-
-    """
-    if not isinstance(l, list):
-        return [l]
-    else:
-        return sum(map(flatten, l), [])
-
-
-def _enumerate_flat(l, idx=0):
-    if not isinstance(l, list):
-        # Found a scalar, so return and increment.
-        return idx, idx + 1
-    else:
-        # Found a list, so append all the scalars
-        # from it and recurse to keep the increment
-        # correct.
-        acc = []
-        for elem in l:
-            labels, idx = _enumerate_flat(elem, idx)
-            acc.append(labels)
-        return acc, idx
-
-
-def enumerate_flat(l):
-    """Labels the indices at which scalars occur in a flattened list.
-
-    Given a list containing a mix of scalars and lists,
-    returns a list of the same structure, where each scalar
-    has been replaced by an index into the flattened list.
-
-    Examples
-    --------
-
-    >>> print(enumerate_flat([[[10], [20, 30]], 40]))
-    [[[0], [1, 2]], 3]
-
-    """
-    return _enumerate_flat(l)[0]
-
-
-def deep_remove(l, *what):
-    """Removes scalars from all levels of a nested list.
-
-    Given a list containing a mix of scalars and lists,
-    returns a list of the same structure, but where one or
-    more scalars have been removed.
-
-    Examples
-    --------
-
-    >>> print(deep_remove([[[[0, 1, 2]], [3, 4], [5], [6, 7]]], 0, 5))
-    [[[[1, 2]], [3, 4], [], [6, 7]]]
-
-    """
-    if isinstance(l, list):
-        # Make a shallow copy at this level.
-        l = l[:]
-        for to_remove in what:
-            if to_remove in l:
-                l.remove(to_remove)
-            else:
-                l = list(map(lambda elem: deep_remove(elem, to_remove), l))
-    return l
-
-
-def unflatten(l, idxs):
-    """Unflattens a list by a given structure.
-
-    Given a list of scalars and a deep list of indices
-    as produced by `flatten`, returns an "unflattened"
-    form of the list. This perfectly inverts `flatten`.
-
-    Examples
-    --------
-
-    >>> l = [[[10, 20, 30], [40, 50, 60]], [[70, 80, 90], [100, 110, 120]]]
-    >>> idxs = enumerate_flat(l)
-    >>> print(unflatten(flatten(l)), idxs) == l
-    True
-
-    """
-    acc = []
-    for idx in idxs:
-        if isinstance(idx, list):
-            acc.append(unflatten(l, idx))
-        else:
-            acc.append(l[idx])
-    return acc
-
-
 def _tensor_contract_single(arr, i, j):
     """
     Contracts a dense tensor along a single index pair.
@@ -359,7 +263,8 @@ def _tensor_contract_single(arr, i, j):
     idxs = np.arange(arr.shape[i])
     sl = tuple(slice(None, None, None)
                if idx not in (i, j) else idxs for idx in range(arr.ndim))
-    return np.sum(arr[sl], axis=0)
+    contract_at = i if j == i + 1 else 0
+    return np.sum(arr[sl], axis=contract_at)
 
 
 def _tensor_contract_dense(arr, *pairs):
@@ -375,6 +280,51 @@ def _tensor_contract_dense(arr, *pairs):
         arr = _tensor_contract_single(arr, *map(axis_idxs.index, pair))
         list(map(axis_idxs.remove, pair))
     return arr
+
+
+def tensor_swap(q_oper, *pairs):
+    """Transposes one or more pairs of indices of a Qobj.
+    Note that this uses dense representations and thus
+    should *not* be used for very large Qobjs.
+
+    Parameters
+    ----------
+
+    pairs : tuple
+        One or more tuples ``(i, j)`` indicating that the
+        ``i`` and ``j`` dimensions of the original qobj
+        should be swapped.
+
+    Returns
+    -------
+
+    sqobj : Qobj
+        The original Qobj with all named index pairs swapped with each other
+    """
+    dims = q_oper.dims
+    tensor_pairs = dims_idxs_to_tensor_idxs(dims, pairs)
+
+    data = q_oper.data.toarray()
+
+    # Reshape into tensor indices
+    data = data.reshape(dims_to_tensor_shape(dims))
+
+    # Now permute the dims list so we know how to get back.
+    flat_dims = flatten(dims)
+    perm = list(range(len(flat_dims)))
+    for i, j in pairs:
+        flat_dims[i], flat_dims[j] = flat_dims[j], flat_dims[i]
+    for i, j in tensor_pairs:
+        perm[i], perm[j] = perm[j], perm[i]
+    dims = unflatten(flat_dims, enumerate_flat(dims))
+
+    # Next, permute the actual indices of the dense tensor.
+    data = data.transpose(perm)
+
+    # Reshape back, using the left and right of dims.
+    data = data.reshape(list(map(np.prod, dims)))
+
+    return Qobj(inpt=data, dims=dims, superrep=q_oper.superrep)
 
 
 def tensor_contract(qobj, *pairs):
@@ -401,23 +351,31 @@ def tensor_contract(qobj, *pairs):
     # Record and label the original dims.
     dims = qobj.dims
     dims_idxs = enumerate_flat(dims)
-    flat_dims = flatten(dims)
+    tensor_dims = dims_to_tensor_shape(dims)
 
     # Convert to dense first, since sparse won't support the reshaping we need.
     qtens = qobj.data.toarray()
 
     # Reshape by the flattened dims.
-    qtens = qtens.reshape(flat_dims)
+    qtens = qtens.reshape(tensor_dims)
 
     # Contract out the indices from the flattened object.
-    qtens = _tensor_contract_dense(qtens, *pairs)
+    # Note that we need to feed pairs through dims_idxs_to_tensor_idxs
+    # to ensure that we are contracting the right indices.
+    qtens = _tensor_contract_dense(qtens, *dims_idxs_to_tensor_idxs(dims, pairs))
 
     # Remove the contracted indexes from dims so we know how to
     # reshape back.
+    # This concerns dims, and not the tensor indices, so we need
+    # to make sure to use the original dims indices and not the ones
+    # generated by dims_to_* functions.
     contracted_idxs = deep_remove(dims_idxs, *flatten(list(map(list, pairs))))
-    contracted_dims = unflatten(flat_dims, contracted_idxs)
+    contracted_dims = unflatten(flatten(dims), contracted_idxs)
 
-    l_mtx_dims, r_mtx_dims = map(np.product, contracted_dims)
+    # We don't need to check for tensor idxs versus dims idxs here,
+    # as column- versus row-stacking will never move an index for the
+    # vectorized operator spaces all the way from the left to the right.
+    l_mtx_dims, r_mtx_dims = map(np.product, map(flatten, contracted_dims))
 
     # Reshape back into a 2D matrix.
     qmtx = qtens.reshape((l_mtx_dims, r_mtx_dims))

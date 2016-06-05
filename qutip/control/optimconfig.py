@@ -42,17 +42,13 @@
 Configuration parameters for control pulse optimisation
 """
 
-import os
-import errno
 import numpy as np
 # QuTiP logging
-import qutip.logging
-logger = qutip.logging.get_logger()
+import qutip.logging_utils
+logger = qutip.logging_utils.get_logger()
+import qutip.control.io as qtrlio
 
-TEST_OUT_DIR = "test_out"
-
-
-class OptimConfig:
+class OptimConfig(object):
     """
     Configuration parameters for control pulse optimisation
 
@@ -60,14 +56,13 @@ class OptimConfig:
     ----------
     log_level : integer
         level of messaging output from the logger.
-        Options are attributes of qutip.logging,
+        Options are attributes of qutip.logging_utils,
         in decreasing levels of messaging, are:
         DEBUG_INTENSE, DEBUG_VERBOSE, DEBUG, INFO, WARN, ERROR, CRITICAL
         Anything WARN or above is effectively 'quiet' execution,
         assuming everything runs as expected.
         The default NOTSET implies that the level will be taken from
         the QuTiP settings file, which by default is WARN
-        Note value should be set using set_log_level
 
     dyn_type : string
         Dynamics type, i.e. the type of matrix used to describe
@@ -87,44 +82,6 @@ class OptimConfig:
         DEF will use the default for the specific dyn_type
         (See FidelityComputer classes for details)
 
-    test_out_dir : string
-        Directory where test output files will be saved
-        By default this is a sub directory called 'test_out'
-        It will be created in the working directory if it does not exist
-
-    test_out_f_ext : string
-        File extension that will be applied to all test output file names
-
-    test_out_iter : Boolean
-        When True a file will be created that records the wall time,
-        fidelity error and gradient norm for each iteration of the algorithm
-
-    test_out_fid_err : Boolean
-        When True a file will be created that records the fidelity error
-        each time the Optimizer.fid_err_wrapper method is called
-
-    test_out_grad_norm : Boolean
-        When True a file will be created that records the gradient norm
-        each time the Optimizer.fid_err_grad_wrapper method is called
-
-    test_out_grad : Boolean
-        When True a file will be created each time the
-        Optimizer.fid_err_grad_wrapper method is called containing
-        the gradients with respect to each control in each timeslot
-
-    test_out_prop : Boolean
-        When True a file will be created each time the timeslot evolution
-        is recomputed recording propagators for each timeslot
-
-    test_out_prop_grad : Boolean
-        When True a file will be created each time the timeslot evolution
-        is recomputed recording the propagator gradient
-        wrt each control in each timeslot
-
-    test_out_evo : Boolean
-        When True a file will be created each time the timeslot evolution
-        is recomputed recording the operators (matrices) for the forward
-        and onward evolution in each timeslot
     """
 
     def __init__(self):
@@ -148,73 +105,27 @@ class OptimConfig:
         ######################
         # Note the following parameteres are for constrained optimisation
         # methods e.g. L-BFGS-B
-        # *** AJGP 2015-04-21: 
-        #           These have been moved to the OptimizerLBFGSB class
-#        self.amp_lbound = -np.Inf
-#        self.amp_ubound = np.Inf
-#        self.max_metric_corr = 10
-#        self.accuracy_factor = 1e7
+        # *** AJGP 2015-04-21:
+        #    These have been moved to the OptimizerLBFGSB class
+        #        self.amp_lbound = -np.Inf
+        #        self.amp_ubound = np.Inf
+        #        self.max_metric_corr = 10
+        #    These moved to termination conditions
+        #        self.accuracy_factor = 1e7
         # ***
         # ####################
-        self.reset_test_out_files()
 
-    def reset_test_out_files(self):
-        # Test output file flags
-        self.test_out_dir = None
-        self.test_out_f_ext = ".txt"
-        self.clear_test_out_flags()
+    @property
+    def log_level(self):
+        return logger.level
 
-    def clear_test_out_flags(self):
-        self.test_out_iter = False
-        self.test_out_fid_err = False
-        self.test_out_grad_norm = False
-        self.test_out_amps = False
-        self.test_out_grad = False
-        self.test_out_prop = False
-        self.test_out_prop_grad = False
-        self.test_out_evo = False
-
-    def set_log_level(self, lvl):
+    @log_level.setter
+    def log_level(self, lvl):
         """
         Set the log_level attribute and set the level of the logger
         that is call logger.setLevel(lvl)
         """
-        self.log_level = lvl
         logger.setLevel(lvl)
-
-    def any_test_files(self):
-        """
-        Returns True if any test_out files are to be produced
-        That is debug files written to the test_out directory
-        """
-        if (self.test_out_iter or
-                self.test_out_fid_err or
-                self.test_out_grad_norm or
-                self.test_out_grad or
-                self.test_out_amps or
-                self.test_out_prop or
-                self.test_out_prop_grad or
-                self.test_out_evo):
-            return True
-        else:
-            return False
-
-    def check_create_test_out_dir(self):
-        """
-        Checks test_out directory exists, creates it if not
-        """
-        if self.test_out_dir is None or len(self.test_out_dir) == 0:
-            self.test_out_dir = TEST_OUT_DIR
-
-        dir_ok, self.test_out_dir, msg = self.check_create_output_dir(
-                    self.test_out_dir, desc='test_out')
-
-        if not dir_ok:
-            self.reset_test_out_files()
-            msg += "\ntest_out files will be suppressed."
-            logger.error(msg)
-
-        return dir_ok
 
     def check_create_output_dir(self, output_dir, desc='output'):
         """
@@ -231,39 +142,8 @@ class OptimConfig:
         msg : string
             Error msg if directory creation failed
         """
-
-        dir_ok = True
-        if '~' in output_dir:
-            output_dir = os.path.expanduser(output_dir)
-        elif not os.path.abspath(output_dir):
-            # Assume relative path from cwd given
-            output_dir = os.path.join(os.getcwd(), output_dir)
-
-        errmsg = "Failed to create {} directory:\n{}\n".format(desc,
-                                                            output_dir)
-
-        if os.path.exists(output_dir):
-            if os.path.isfile(output_dir):
-                dir_ok = False
-                errmsg += "A file already exists with the same name"
-        else:
-            try:
-                os.makedirs(output_dir)
-                logger.info("Test out files directory {} created "
-                            "(recursively)".format(output_dir))
-            except OSError as e:
-                if e.errno == errno.EEXIST:
-                    logger.info("Assume test out files directory {} created "
-                        "(recursively)  some other process".format(output_dir))
-                else:
-                    dir_ok = False
-                    errmsg += "Underling error (makedirs) :({}) {}".format(
-                        type(e).__name__, e)
-
-        if dir_ok:
-            return dir_ok, output_dir, "{} directory is ready".format(desc)
-        else:
-            return dir_ok, output_dir, errmsg
+        
+        return qtrlio.create_dir(output_dir, desc=desc)
 
 # create global instance
 optimconfig = OptimConfig()
