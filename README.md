@@ -1,7 +1,7 @@
 QuTiP: Quantum Toolbox in Python
 ================================
 
-[A. Pitchford](http://github.com/ajgpitch), [C. Granade](http://github.com/cgranade), [P.D. Nation](http://github.com/nonhermitian), and [J.R. Johansson](http://github.com/jrjohansson)
+[A. Pitchford](http://github.com/ajgpitch), [C. Granade](http://github.com/cgranade), [A. Grimsmo](http://github.com/arnelg), [P. D. Nation](http://github.com/nonhermitian), and [J. R. Johansson](http://github.com/jrjohansson)
 
 QuTiP is open-source software for simulating the dynamics of closed and open
 quantum systems. The QuTiP library uses the excellent Numpy, Scipy, and Cython packages as numerical backend, and graphical output is provided by Matplotlib. QuTiP aims to provide user-friendly and efficient numerical simulations of a wide
@@ -31,7 +31,7 @@ Installation
 
 For instructions on how to install QuTiP, see:
 
-[http://qutip.org/docs/3.1.0/installation.html](http://qutip.org/docs/3.1.0/installation.html)
+[http://qutip.org/docs/4.1/installation.html](http://qutip.org/docs/4.1/installation.html)
 
 
 Demos
@@ -63,11 +63,13 @@ All contributions are acknowledged in the
 [contributors](http://github.com/qutip/qutip-doc/blob/master/contributors.rst)
 section in the documentation.
 
+Note that all contributions must adhere to the [PEP 8 -- Style Guide for Python Code](https://www.python.org/dev/peps/pep-0008/).
+
 Changelog
 ---------
 
 For release notes and a change log, see the
-[changelog](https://github.com/qutip/qutip-notebooks/blob/master/guide/ChangeLog.ipynb)
+[changelog](http://github.com/qutip/qutip-doc/blob/master/changelog.rst)
 section in the documentation.
 
 License

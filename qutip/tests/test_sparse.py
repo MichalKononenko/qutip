@@ -31,13 +31,15 @@
 #    OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ###############################################################################
 import numpy as np
-from numpy.testing import run_module_suite, assert_equal
+from numpy.testing import run_module_suite, assert_equal, assert_almost_equal
 import scipy.sparse as sp
 
-from qutip.random_objects import rand_dm
+from qutip.random_objects import (rand_dm, rand_herm,
+                                  rand_ket)
 from qutip.states import coherent
 from qutip.sparse import (sp_bandwidth, sp_permute, sp_reverse_permute,
-                          sp_profile)
+                          sp_profile, sp_one_norm, sp_inf_norm)
+from qutip.cy.spmath import zcsr_kron
 
 
 def _permutateIndexes(array, row_perm, col_perm):
@@ -185,6 +187,22 @@ def test_sp_profile():
         B = A.toarray()
         ans = _dense_profile(B)
         assert_equal(pro, ans)
+
+def test_sp_one_norm():
+    "Sparse: one-norm"
+    for kk in range(10):
+        H = rand_herm(100,0.1).data
+        nrm = sp_one_norm(H)
+        ans = max(abs(H).sum(axis=0).flat)
+        assert_almost_equal(nrm,ans)
+        
+def test_sp_inf_norm():
+    "Sparse: inf-norm"
+    for kk in range(10):
+        H = rand_herm(100,0.1).data
+        nrm = sp_inf_norm(H)
+        ans = max(abs(H).sum(axis=1).flat)
+        assert_almost_equal(nrm,ans)
 
 
 if __name__ == "__main__":

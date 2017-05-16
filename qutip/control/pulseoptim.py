@@ -156,9 +156,9 @@ def optimize_pulse(
 
     Parameters
     ----------
-
-    drift : Qobj
+    drift : Qobj or list of Qobj
         the underlying dynamics generator of the system
+        can provide list (of length num_tslots) for time dependent drift
 
     ctrls : List of Qobj
         a list of control dynamics generators. These are scaled by
@@ -214,6 +214,7 @@ def optimize_pulse(
     alg : string
         Algorithm to use in pulse optimisation.
         Options are:
+            
             'GRAPE' (default) - GRadient Ascent Pulse Engineering
             'CRAB' - Chopped RAndom Basis
 
@@ -367,9 +368,11 @@ def optimize_pulse(
 
     Returns
     -------
+    opt : OptimResult     
         Returns instance of OptimResult, which has attributes giving the
         reason for termination, final fidelity error, final evolution
         final amplitudes, statistics etc
+    
     """
     if log_level == logging.NOTSET:
         log_level = logger.getEffectiveLevel()
@@ -457,22 +460,6 @@ def optimize_pulse(
         log_level=log_level, gen_stats=gen_stats)
 
     dyn = optim.dynamics
-    
-    if log_level <= logging.INFO:
-        msg = "System configuration:\n"
-        dg_name = "dynamics generator"
-        if dyn_type == 'UNIT':
-            dg_name = "Hamiltonian"
-        msg += "Drift {}:\n".format(dg_name)
-        msg += str(dyn.drift_dyn_gen)
-        for j in range(dyn.num_ctrls):
-            msg += "\nControl {} {}:\n".format(j+1, dg_name)
-            msg += str(dyn.ctrl_dyn_gen[j])
-        msg += "\nInitial state / operator:\n"
-        msg += str(dyn.initial)
-        msg += "\nTarget state / operator:\n"
-        msg += str(dyn.target)
-        logger.info(msg)
 
     dyn.init_timeslots()
     # Generate initial pulses for each control
@@ -490,6 +477,26 @@ def optimize_pulse(
         
     # Initialise the starting amplitudes
     dyn.initialize_controls(init_amps)
+    
+    if log_level <= logging.INFO:
+        msg = "System configuration:\n"
+        dg_name = "dynamics generator"
+        if dyn_type == 'UNIT':
+            dg_name = "Hamiltonian"
+        if dyn.time_depend_drift:
+            msg += "Initial drift {}:\n".format(dg_name)
+            msg += str(dyn.drift_dyn_gen[0])
+        else:
+            msg += "Drift {}:\n".format(dg_name)
+            msg += str(dyn.drift_dyn_gen)
+        for j in range(dyn.num_ctrls):
+            msg += "\nControl {} {}:\n".format(j+1, dg_name)
+            msg += str(dyn.ctrl_dyn_gen[j])
+        msg += "\nInitial state / operator:\n"
+        msg += str(dyn.initial)
+        msg += "\nTarget state / operator:\n"
+        msg += str(dyn.target)
+        logger.info(msg)
 
     if out_file_ext is not None:
         # Save initial amplitudes to a text file
@@ -547,10 +554,10 @@ def optimize_pulse_unitary(
 
     Parameters
     ----------
-
-    H_d : Qobj
+    H_d : Qobj or list of Qobj
         Drift (aka system) the underlying Hamiltonian of the system
-
+        can provide list (of length num_tslots) for time dependent drift
+        
     H_c : Qobj
         a list of control Hamiltonians. These are scaled by
         the amplitudes to alter the overall dynamics
@@ -626,6 +633,7 @@ def optimize_pulse_unitary(
         Note the LBFGSB is equivalent to FMIN_L_BFGS_B for backwards 
         capatibility reasons.
         Supplying DEF will given alg dependent result:
+            
             GRAPE - Default optim_method is FMIN_L_BFGS_B
             CRAB - Default optim_method is FMIN
         
@@ -649,6 +657,7 @@ def optimize_pulse_unitary(
     phase_option : string
         determines how global phase is treated in fidelity
         calculations (fid_type='UNIT' only). Options:
+            
             PSU - global phase ignored
             SU - global phase included
 
@@ -686,8 +695,10 @@ def optimize_pulse_unitary(
         type / shape of pulse(s) used to initialise the
         the control amplitudes. 
         Options (GRAPE) include:
+            
             RND, LIN, ZERO, SINE, SQUARE, TRIANGLE, SAW
-        DEF is RND
+            DEF is RND
+        
         (see PulseGen classes for details)
         For the CRAB the this the guess_pulse_type. 
 
@@ -740,16 +751,23 @@ def optimize_pulse_unitary(
 
     Returns
     -------
+    opt : OptimResult
         Returns instance of OptimResult, which has attributes giving the
         reason for termination, final fidelity error, final evolution
         final amplitudes, statistics etc
+    
     """
 
     # check parameters here, as names are different than in
     # create_pulse_optimizer, so TypeErrors would be confusing
 
     if not isinstance(H_d, Qobj):
-        raise TypeError("H_d must be a Qobj")
+        if not isinstance(H_d, (list, tuple)):
+            raise TypeError("H_d should be a Qobj or a list of Qobj")
+        else:
+            for H in H_d:
+                if not isinstance(H, Qobj):
+                    raise TypeError("H_d should be a Qobj or a list of Qobj")
 
     if not isinstance(H_c, (list, tuple)):
         raise TypeError("H_c should be a list of Qobj")
@@ -863,9 +881,9 @@ def opt_pulse_crab(
 
     Parameters
     ----------
-
-    drift : Qobj
+    drift : Qobj or list of Qobj
         the underlying dynamics generator of the system
+        can provide list (of length num_tslots) for time dependent drift
 
     ctrls : List of Qobj
         a list of control dynamics generators. These are scaled by
@@ -1059,9 +1077,11 @@ def opt_pulse_crab(
 
     Returns
     -------
+    opt : OptimResult    
         Returns instance of OptimResult, which has attributes giving the
         reason for termination, final fidelity error, final evolution
         final amplitudes, statistics etc
+    
     """
 
     # The parameters are checked in create_pulse_optimizer
@@ -1156,8 +1176,9 @@ def opt_pulse_crab_unitary(
     Parameters
     ----------
 
-    H_d : Qobj
+    H_d : Qobj or list of Qobj
         Drift (aka system) the underlying Hamiltonian of the system
+        can provide list (of length num_tslots) for time dependent drift
 
     H_c : Qobj
         a list of control Hamiltonians. These are scaled by
@@ -1339,9 +1360,11 @@ def opt_pulse_crab_unitary(
 
     Returns
     -------
+    opt : OptimResult    
         Returns instance of OptimResult, which has attributes giving the
         reason for termination, final fidelity error, final evolution
         final amplitudes, statistics etc
+    
     """
 
     # The parameters are checked in create_pulse_optimizer
@@ -1428,9 +1451,9 @@ def create_pulse_optimizer(
 
     Parameters
     ----------
-
-    drift : Qobj
+    drift : Qobj or list of Qobj
         the underlying dynamics generator of the system
+        can provide list (of length num_tslots) for time dependent drift
 
     ctrls : List of Qobj
         a list of control dynamics generators. These are scaled by
@@ -1507,8 +1530,8 @@ def create_pulse_optimizer(
         Note the LBFGSB is equivalent to FMIN_L_BFGS_B for backwards 
         capatibility reasons.
         Supplying DEF will given alg dependent result:
-            GRAPE - Default optim_method is FMIN_L_BFGS_B
-            CRAB - Default optim_method is Nelder-Mead
+            - GRAPE - Default optim_method is FMIN_L_BFGS_B
+            - CRAB - Default optim_method is Nelder-Mead
         
     method_params : dict
         Parameters for the optim_method. 
@@ -1585,8 +1608,10 @@ def create_pulse_optimizer(
         type / shape of pulse(s) used to initialise the
         the control amplitudes. 
         Options (GRAPE) include:
+            
             RND, LIN, ZERO, SINE, SQUARE, TRIANGLE, SAW
-        DEF is RND
+            DEF is RND
+        
         (see PulseGen classes for details)
         For the CRAB the this the guess_pulse_type. 
 
@@ -1633,18 +1658,24 @@ def create_pulse_optimizer(
 
     Returns
     -------
+    opt : Optimizer    
         Instance of an Optimizer, through which the
         Config, Dynamics, PulseGen, and TerminationConditions objects
         can be accessed as attributes.
         The PropagatorComputer, FidelityComputer and TimeslotComputer objects
-        can be accessed as attributes of the Dynamics object, e.g.
-            optimizer.dynamics.fid_computer
+        can be accessed as attributes of the Dynamics object, e.g. optimizer.dynamics.fid_computer
         The optimisation can be run through the optimizer.run_optimization
+    
     """
 
     # check parameters
     if not isinstance(drift, Qobj):
-        raise TypeError("drift must be a Qobj")
+        if not isinstance(drift, (list, tuple)):
+            raise TypeError("drift should be a Qobj or a list of Qobj")
+        else:
+            for d in drift:
+                if not isinstance(d, Qobj):
+                    raise TypeError("drift should be a Qobj or a list of Qobj")
 
     if not isinstance(ctrls, (list, tuple)):
         raise TypeError("ctrls should be a list of Qobj")

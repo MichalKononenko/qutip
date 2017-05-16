@@ -31,8 +31,27 @@
 #    OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ###############################################################################
 import numpy as np
+from qutip.fastsparse import fast_csr_matrix
 cimport numpy as np
+from libc.math cimport abs, fabs, sqrt
 cimport cython
+np.import_array()
+
+cdef extern from "numpy/arrayobject.h" nogil:
+    void PyArray_ENABLEFLAGS(np.ndarray arr, int flags)
+    void PyDataMem_FREE(void * ptr)
+    void PyDataMem_RENEW(void * ptr, size_t size)
+    void PyDataMem_NEW_ZEROED(size_t size, size_t elsize)
+    void PyDataMem_NEW(size_t size)
+
+
+cdef extern from "<complex>" namespace "std" nogil:
+    double abs(double complex x)
+    double real(double complex x)
+    double imag(double complex x)
+
+cdef extern from "<complex>" namespace "std" nogil:
+    double cabs "abs" (double complex x)
 
 cdef inline int int_max(int x, int y):
     return x ^ ((x ^ y) & -(x < y))
@@ -49,10 +68,11 @@ def _sparse_bandwidth(
     Calculates the max (mb), lower(lb), and upper(ub) bandwidths of a
     csr_matrix.
     """
-    cdef int lb, ub, mb, ii, jj, ldist
-    lb = -nrows
-    ub = -nrows
-    mb = 0
+    cdef int ldist
+    cdef int lb = -nrows
+    cdef int ub = -nrows
+    cdef int mb = 0
+    cdef size_t ii, jj
 
     for ii in range(nrows):
         for jj in range(ptr[ii], ptr[ii + 1]):
@@ -70,7 +90,7 @@ def _sparse_profile(np.ndarray[ITYPE_t, ndim=1] idx,
         np.ndarray[ITYPE_t, ndim=1] ptr,
         int nrows):
     cdef int ii, jj, temp, ldist=0
-    cdef LTYPE_t pro=0
+    cdef LTYPE_t pro = 0
     for ii in range(nrows):
         temp = 0
         for jj in range(ptr[ii], ptr[ii + 1]):
@@ -106,9 +126,9 @@ def _sparse_permute(
     cdef np.ndarray[ITYPE_t] inds
 
     if flag == 0:  # CSR matrix
-        if len(rperm):
+        if rperm.shape[0] != 0:
             inds = np.argsort(rperm).astype(ITYPE)
-            perm_r = np.arange(len(rperm), dtype=ITYPE)[inds]
+            perm_r = np.arange(rperm.shape[0], dtype=ITYPE)[inds]
 
             for jj in range(nrows):
                 ii = perm_r[jj]
@@ -124,17 +144,17 @@ def _sparse_permute(
                     new_data[k0] = data[kk]
                     k0 = k0 + 1
 
-        if len(cperm):
+        if cperm.shape[0] != 0:
             inds = np.argsort(cperm).astype(ITYPE)
-            perm_c = np.arange(len(cperm), dtype=ITYPE)[inds]
-            nnz = new_ptr[len(new_ptr) - 1]
+            perm_c = np.arange(cperm.shape[0], dtype=ITYPE)[inds]
+            nnz = new_ptr[new_ptr.shape[0] - 1]
             for jj in range(nnz):
                 new_idx[jj] = perm_c[new_idx[jj]]
 
     elif flag == 1:  # CSC matrix
-        if len(cperm):
+        if cperm.shape[0] != 0:
             inds = np.argsort(cperm).astype(ITYPE)
-            perm_c = np.arange(len(cperm), dtype=ITYPE)[inds]
+            perm_c = np.arange(cperm.shape[0], dtype=ITYPE)[inds]
 
             for jj in range(ncols):
                 ii = perm_c[jj]
@@ -150,10 +170,10 @@ def _sparse_permute(
                     new_data[k0] = data[kk]
                     k0 = k0 + 1
 
-        if len(rperm):
+        if rperm.shape[0] != 0:
             inds = np.argsort(rperm).astype(ITYPE)
-            perm_r = np.arange(len(rperm), dtype=ITYPE)[inds]
-            nnz = new_ptr[len(new_ptr) - 1]
+            perm_r = np.arange(rperm.shape[0], dtype=ITYPE)[inds]
+            nnz = new_ptr[new_ptr.shape[0] - 1]
             for jj in range(nnz):
                 new_idx[jj] = perm_r[new_idx[jj]]
 
@@ -181,7 +201,7 @@ def _sparse_reverse_permute(
     cdef np.ndarray[ITYPE_t, ndim=1] new_ptr = np.zeros_like(ptr)
 
     if flag == 0:  # CSR matrix
-        if len(rperm):
+        if rperm.shape[0] != 0:
             for jj in range(nrows):
                 ii = rperm[jj]
                 new_ptr[ii + 1] = ptr[jj + 1] - ptr[jj]
@@ -196,13 +216,13 @@ def _sparse_reverse_permute(
                     new_data[k0] = data[kk]
                     k0 = k0 + 1
 
-        if len(cperm):
-            nnz = new_ptr[len(new_ptr) - 1]
+        if cperm.shape[0] > 0:
+            nnz = new_ptr[new_ptr.shape[0] - 1]
             for jj in range(nnz):
                 new_idx[jj] = cperm[new_idx[jj]]
 
     if flag == 1:  # CSC matrix
-        if len(cperm):
+        if cperm.shape[0] != 0:
             for jj in range(ncols):
                 ii = cperm[jj]
                 new_ptr[ii + 1] = ptr[jj + 1] - ptr[jj]
@@ -217,8 +237,8 @@ def _sparse_reverse_permute(
                     new_data[k0] = data[kk]
                     k0 = k0 + 1
 
-        if len(rperm) != 0:
-            nnz = new_ptr[len(new_ptr) - 1]
+        if cperm.shape[0] != 0:
+            nnz = new_ptr[new_ptr.shape[0] - 1]
             for jj in range(nnz):
                 new_idx[jj] = rperm[new_idx[jj]]
 
@@ -242,3 +262,100 @@ def _isdiag(np.ndarray[ITYPE_t, ndim=1] idx,
     return 1
 
 
+@cython.boundscheck(False)
+@cython.wraparound(False)
+cpdef np.ndarray[complex, ndim=1, mode='c'] _csr_get_diag(complex[::1] data, 
+    int[::1] idx, int[::1] ptr, int k=0):
+    
+    cdef size_t row, jj
+    cdef int num_rows = ptr.shape[0]-1
+    cdef int abs_k = abs(k)
+    cdef int start, stop
+    cdef np.ndarray[complex, ndim=1, mode='c'] out = np.zeros(num_rows-abs_k, dtype=complex)
+
+    if k >= 0:
+        start = 0
+        stop = num_rows-abs_k
+    else: #k < 0
+        start = abs_k
+        stop = num_rows
+
+    for row in range(start, stop):
+        for jj in range(ptr[row], ptr[row+1]):
+            if idx[jj]-k == row:
+                out[row-start] = data[jj]
+                break
+    return out
+
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+@cython.cdivision(True)
+def unit_row_norm(complex[::1] data, int[::1] ptr, int nrows):
+    cdef size_t row, ii
+    cdef double total
+    for row in range(nrows):
+        total = 0
+        for ii in range(ptr[row], ptr[row+1]):
+            total += real(data[ii]) * real(data[ii]) + imag(data[ii]) * imag(data[ii])
+        total = sqrt(total)
+        for ii in range(ptr[row], ptr[row+1]):
+            data[ii] /= total
+
+
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+cpdef double zcsr_one_norm(complex[::1] data, int[::1] ind, int[::1] ptr,       
+                     int nrows, int ncols):
+
+    cdef int k
+    cdef size_t ii, jj
+    cdef double * col_sum = <double *>PyDataMem_NEW_ZEROED(ncols, sizeof(double))
+    cdef double max_col = 0
+    for ii in range(nrows):
+        for jj in range(ptr[ii], ptr[ii+1]):
+            k = ind[jj]
+            col_sum[k] += cabs(data[jj])
+    for ii in range(ncols):
+        if col_sum[ii] > max_col:
+            max_col = col_sum[ii]        
+    PyDataMem_FREE(col_sum)
+    return max_col
+
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+cpdef double zcsr_inf_norm(complex[::1] data, int[::1] ind, int[::1] ptr,       
+                     int nrows, int ncols):
+
+    cdef int k
+    cdef size_t ii, jj
+    cdef double * row_sum = <double *>PyDataMem_NEW_ZEROED(nrows, sizeof(double))
+    cdef double max_row = 0
+    for ii in range(nrows):
+        for jj in range(ptr[ii], ptr[ii+1]):
+            row_sum[ii] += cabs(data[jj])
+    for ii in range(nrows):
+        if row_sum[ii] > max_row:
+            max_row = row_sum[ii]        
+    PyDataMem_FREE(row_sum)
+    return max_row
+    
+    
+@cython.boundscheck(False)
+@cython.wraparound(False)
+def cy_tidyup(complex[::1] data, double atol, unsigned int nnz):
+    """
+    Performs an in-place tidyup of CSR matrix data
+    """
+    cdef size_t kk
+    cdef double re, im
+    for kk in range(nnz):
+        re = real(data[kk])
+        im = imag(data[kk])
+        if fabs(re) < atol:
+            re = 0
+        if fabs(im) < atol:
+            im = 0
+        data[kk] = re + 1j*im

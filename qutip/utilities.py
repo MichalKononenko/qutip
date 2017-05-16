@@ -40,8 +40,6 @@ __all__ = ['n_thermal', 'linspace_with', 'clebsch', 'convert_unit',
            'view_methods']
 
 import numpy as np
-from scipy.misc import factorial
-
 
 def n_thermal(w, w_th):
     """
@@ -143,6 +141,8 @@ def clebsch(j1, j2, j3, m1, m2, m3):
         Requested Clebsch-Gordan coefficient.
 
     """
+    from scipy.misc import factorial
+    
     if m3 != m1 + m2:
         return 0
     vmin = int(np.max([-j1 + j2 + m3, -j1 + m1, 0]))
@@ -401,10 +401,13 @@ def _version2int(version_string):
 def _blas_info():
     config = np.__config__
     blas_info = config.blas_opt_info
+    _has_lib_key = 'libraries' in blas_info.keys()
     blas = None
-    if hasattr(config,'mkl_info'):
+    if hasattr(config,'mkl_info') or \
+            (_has_lib_key and any('mkl' in lib for lib in blas_info['libraries'])):
         blas = 'INTEL MKL'
-    elif hasattr(config,'openblas_info'):
+    elif hasattr(config,'openblas_info') or \
+            (_has_lib_key and any('openblas' in lib for lib in blas_info['libraries'])):
         blas = 'OPENBLAS'
     elif 'extra_link_args' in blas_info.keys() and ('-Wl,Accelerate' in blas_info['extra_link_args']):
         blas = 'Accelerate'

@@ -31,13 +31,14 @@
 #    OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ###############################################################################
 
-__all__ = ['Gate', 'QubitCircuit']
-
 import numpy as np
 import warnings
 
 from qutip.qip.circuit_latex import _latex_compile
 from qutip.qip.gates import *
+from qutip.qip.qubits import qubit_states
+
+__all__ = ['Gate', 'QubitCircuit']
 
 
 class Gate(object):
@@ -53,15 +54,15 @@ class Gate(object):
 
         Parameters
         ----------
-        name: String
+        name : String
             Gate name.
-        targets: List
+        targets : List
             Gate targets.
-        controls: List
+        controls : List
             Gate controls.
-        arg_value: Float
+        arg_value : Float
             Argument value(phi).
-        arg_label: String
+        arg_label : String
             Label for gate representation.
         """
         self.name = name
@@ -164,23 +165,53 @@ class QubitCircuit(object):
     of gates.
     """
 
-    def __init__(self, N, reverse_states=True):
-
+    def __init__(self, N, input_states=None, output_states=None,
+                 reverse_states=True):
         # number of qubits in the register
         self.N = N
         self.reverse_states = reverse_states
         self.gates = []
         self.U_list = []
+        self.input_states = [None for i in range(N)]
+        self.output_states = [None for i in range(N)]
 
-    def add_gate(self, name, targets=None, controls=None, arg_value=None,
+    def add_state(self, state, targets=None, state_type="input"):
+        """
+        Add an input or ouput state to the circuit. By default all the input
+        and output states will be initialized to `None`. A particular state can
+        be added by specifying the state and the qubit where it has to be added
+        along with the type as input or output.
+
+        Parameters
+        ----------
+        state: str
+            The state that has to be added. It can be any string such as `0`,
+            '+', "A", "Y"
+        targets: list
+            A list of qubit positions where the given state has to be added.
+        state_type: str
+            One of either "input" or "output". This specifies whether the state
+            to be added is an input or output.
+            default: "input"
+
+        """
+        if state_type == "input":
+            for i in targets:
+                self.input_states[i] = state
+        if state_type == "output":
+            for i in targets:
+                self.output_states[i] = state
+
+    def add_gate(self, gate, targets=None, controls=None, arg_value=None,
                  arg_label=None):
         """
         Adds a gate with specified parameters to the circuit.
 
         Parameters
         ----------
-        name: String
-            Gate name.
+        gate: String or `Gate`
+            Gate name. If gate is an instance of `Gate`, parameters are
+            unpacked and added.
         targets: List
             Gate targets.
         controls: List
@@ -190,6 +221,15 @@ class QubitCircuit(object):
         arg_label: String
             Label for gate representation.
         """
+        if isinstance(gate, Gate):
+            name = gate.name
+            targets = gate.targets
+            controls = gate.controls
+            arg_value = gate.arg_value
+            arg_label = gate.arg_label
+
+        else:
+            name = gate
         self.gates.append(Gate(name, targets=targets, controls=controls,
                                arg_value=arg_value, arg_label=arg_label))
 
@@ -202,17 +242,17 @@ class QubitCircuit(object):
 
         Parameters
         ----------
-        name: String
+        name : String
             Gate name.
-        start: Integer
+        start : Integer
             Starting location of qubits.
-        end: Integer
+        end : Integer
             Last qubit for the gate.
-        qubits: List
+        qubits : List
             Specific qubits for applying gates.
-        arg_value: Float
+        arg_value : Float
             Argument value(phi).
-        arg_label: String
+        arg_label : String
             Label for gate representation.
         """
         if name not in ["RX", "RY", "RZ", "SNOT", "SQRTNOT", "PHASEGATE"]:
@@ -239,9 +279,9 @@ class QubitCircuit(object):
 
         Parameters
         ----------
-        qc: QubitCircuit
+        qc : QubitCircuit
             The circuit block to be added to the main circuit.
-        start: Integer
+        start : Integer
             The qubit on which the first gate is applied.
         """
 
@@ -273,16 +313,16 @@ class QubitCircuit(object):
 
     def remove_gate(self, index=None, end=None, name=None, remove="first"):
         """
-        Removes a gate from a specific index or between two indexes or the 
+        Removes a gate from a specific index or between two indexes or the
         first, last or all instances of a particular gate.
 
         Parameters
         ----------
-        index: Integer
+        index : Integer
             Location of gate to be removed.
-        name: String
+        name : String
             Gate name to be removed.
-        remove: String
+        remove : String
             If first or all gate are to be removed.
         """
         if index is not None and index <= self.N:
@@ -291,7 +331,7 @@ class QubitCircuit(object):
                     self.gates.pop(index + i)
             elif end is not None and end > self.N:
                 raise ValueError("End target exceeds number of gates.")
-            else:            
+            else:
                 self.gates.pop(index)
 
         elif name is not None and remove == "first":
@@ -320,14 +360,15 @@ class QubitCircuit(object):
 
         Returns
         ----------
-        qc: QubitCircuit
+        qc : QubitCircuit
             Returns QubitCircuit of resolved gates for the qubit circuit in the
             reverse order.
+
         """
         temp = QubitCircuit(self.N, self.reverse_states)
 
-        for i in range(self.N):
-            temp.append(self.gates[self.N - i - 1])
+        for gate in reversed(self.gates):
+            temp.add_gate(gate)
 
         return temp
 
@@ -339,12 +380,12 @@ class QubitCircuit(object):
 
         Parameters
         ----------
-        basis: list.
+        basis : list.
             Basis of the resolved circuit.
 
         Returns
         -------
-        qc: QubitCircuit
+        qc : QubitCircuit
             Returns QubitCircuit of resolved gates for the qubit circuit in the
             desired basis.
         """
@@ -775,7 +816,7 @@ class QubitCircuit(object):
 
         Returns
         ----------
-        qc: QubitCircuit
+        qc : QubitCircuit
             Returns QubitCircuit of the gates for the qubit circuit with the
             resolved non-adjacent gates.
 
@@ -856,7 +897,7 @@ class QubitCircuit(object):
 
         Returns
         -------
-        U_list: list
+        U_list : list
             Returns list of unitary matrices for the qubit circuit.
 
         """
@@ -980,10 +1021,14 @@ class QubitCircuit(object):
             col.append(r" \qw ")
             rows.append(col)
 
+        input_states = ["\lstick{\ket{" + x + "}}" if x is not None
+                        else "" for x in self.input_states]
+
         code = ""
         n_iter = (reversed(range(self.N)) if self.reverse_states
                   else range(self.N))
         for n in n_iter:
+            code += r" & %s" % input_states[n]
             for m in range(len(gates)):
                 code += r" & %s" % rows[m][n]
             code += r" & \qw \\ " + "\n"

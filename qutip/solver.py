@@ -40,7 +40,9 @@ from collections import OrderedDict
 import os
 import warnings
 from qutip import __version__
-
+from qutip.qobj import Qobj
+import qutip.settings as qset
+from types import FunctionType, BuiltinFunctionType
 
 class Options():
     """
@@ -94,6 +96,8 @@ class Options():
         correlation calculations when using mcsolve.
     ntraj : int {500}
         Number of trajectories in stochastic solvers.
+    openmp_threads : int
+        Number of OPENMP threads to use. Default is number of cpu cores.
     rhs_reuse : bool {False,True}
         Reuse Hamiltonian data.
     rhs_with_state : bool {False,True}
@@ -111,6 +115,9 @@ class Options():
         result class, even if expectation values operators are given. If no
         expectation are provided, then states are stored by default and this
         option has no effect.
+    use_openmp : bool {True, False}
+        Use OPENMP for sparse matrix vector multiplication. Default
+        None means auto check.
 
     """
 
@@ -120,7 +127,8 @@ class Options():
                  num_cpus=0, norm_tol=1e-3, norm_steps=5, rhs_reuse=False,
                  rhs_filename=None, ntraj=500, gui=False, rhs_with_state=False,
                  store_final_state=False, store_states=False, seeds=None,
-                 steady_state_average=False):
+                 steady_state_average=False, normalize_output=True,
+                 use_openmp=None, openmp_threads=None):
         # Absolute tolerance (default = 1e-8)
         self.atol = atol
         # Relative tolerance (default = 1e-6)
@@ -166,12 +174,21 @@ class Options():
         # Max. number of steps taken to find wavefunction norm to within
         # norm_tol (mcsolve only)
         self.norm_steps = norm_steps
+        # Number of threads for openmp
+        if openmp_threads is None:
+            self.openmp_threads = qset.num_cpus
+        else:
+            self.openmp_threads = openmp_threads
         # store final state?
         self.store_final_state = store_final_state
         # store states even if expectation operators are given?
         self.store_states = store_states
         # average mcsolver density matricies assuming steady state evolution
         self.steady_state_average = steady_state_average
+        # Normalize output of solvers (turned off for batch unitary propagator mode)
+        self.normalize_output = normalize_output
+        # Use OPENMP for sparse matrix vector multiplication
+        self.use_openmp = use_openmp
 
     def __str__(self):
         if self.seeds is None:
@@ -320,6 +337,7 @@ class SolverConfiguration():
 
         # Hamiltonian stuff
         self.h_td_inds = []  # indicies of time-dependent Hamiltonian operators
+        self.h_tdterms = []  # List of td strs and funcs 
         self.h_data = None   # List of sparse matrix data
         self.h_ind = None    # List of sparse matrix indices
         self.h_ptr = None    # List of sparse matrix ptrs
@@ -767,7 +785,99 @@ class _StatsSection(object):
         self.messages.clear()
         self.total_time = None
         
-        
+
+
+
+def _solver_safety_check(H, state, c_ops=[], e_ops=[], args={}):
+    # Input is std Qobj (Hamiltonian or Liouvillian)
+    if isinstance(H, Qobj):
+        Hdims = H.dims
+        Htype = H.type
+        _structure_check(Hdims, Htype, state)
+    # Input H is function
+    elif isinstance(H, (FunctionType, BuiltinFunctionType)):
+        Hdims = H(0,args).dims
+        Htype = H(0,args).type
+        _structure_check(Hdims, Htype, state)
+    # Input is td-list
+    elif isinstance(H, list):
+        if isinstance(H[0], Qobj):
+            Hdims = H[0].dims
+            Htype = H[0].type
+        elif isinstance(H[0], list):
+            Hdims = H[0][0].dims
+            Htype = H[0][0].type
+        elif isinstance(H[0], (FunctionType, BuiltinFunctionType)):
+            Hdims = H[0](0,args).dims
+            Htype = H[0](0,args).type 
+        else:
+            raise Exception('Invalid td-list element.')
+        # Check all operators in list
+        for ii in range(len(H)):
+            if isinstance(H[ii], Qobj):
+                _temp_dims = H[ii].dims
+                _temp_type = H[ii].type
+            elif isinstance(H[ii], list):
+                _temp_dims = H[ii][0].dims
+                _temp_type = H[ii][0].type
+            elif isinstance(H[0], (FunctionType, BuiltinFunctionType)):
+                _temp_dims = H[ii](0,args).dims
+                _temp_type = H[ii](0,args).type
+            else:
+                raise Exception('Invalid td-list element.')
+            _structure_check(_temp_dims,_temp_type,state)
+    
+    else:
+        raise Exception('Invalid time-dependent format.')
+    
+    for ii in range(len(c_ops)):
+        if isinstance(c_ops[ii], Qobj):
+            _temp_state = c_ops[ii]
+        elif isinstance(c_ops[ii], list):
+            _temp_state = c_ops[ii][0]
+        else:
+            raise Exception('Invalid td-list element.')
+        _structure_check(Hdims, Htype, _temp_state)
+    
+    if isinstance(e_ops, list): 
+        for ii in range(len(e_ops)):
+            if isinstance(e_ops[ii], Qobj):
+                _temp_state = e_ops[ii]
+            elif isinstance(e_ops[ii], list):
+                _temp_state = e_ops[ii][0]
+            else:
+                raise Exception('Invalid td-list element.')
+            _structure_check(Hdims,Htype,_temp_state)
+    elif isinstance(e_ops, FunctionType):
+        pass
+    else:
+        raise Exception('Invalid e_ops specification.')
+
+def _structure_check(Hdims, Htype, state):
+    # Input state is a ket vector
+    if state.type == 'ket':
+        # Input is Hamiltonian
+        if Htype == 'oper':
+            if Hdims[1] != state.dims[0]:
+                raise Exception('Input operator and ket do not share same structure.')
+        # Input is super and state is ket
+        elif Htype == 'super':
+            if Hdims[1][1] != state.dims[0]:
+                raise Exception('Input operator and ket do not share same structure.')
+        else:
+            raise Exception('Invalid input operator.')
+    # Input state is a density matrix
+    elif state.type == 'oper':
+        # Input is Hamiltonian and state is density matrix
+        if Htype == 'oper':
+            if Hdims[1] != state.dims[0]:
+                raise Exception('Input operators do not share same structure.')
+        # Input is super op. and state is density matrix
+        elif Htype == 'super':
+            if Hdims[1] != state.dims:
+                raise Exception('Input operators do not share same structure.')
+
+ 
 #
 # create a global instance of the SolverConfiguration class
 #

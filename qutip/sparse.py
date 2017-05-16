@@ -48,7 +48,9 @@ from scipy.linalg.blas import get_blas_funcs
 _dznrm2 = get_blas_funcs("znrm2")
 from qutip.cy.sparse_utils import (_sparse_profile, _sparse_permute,
                                    _sparse_reverse_permute, _sparse_bandwidth,
-                                   _isdiag)
+                                   _isdiag, zcsr_one_norm, zcsr_inf_norm)
+from qutip.fastsparse import fast_csr_matrix
+from qutip.cy.spconvert import (arr_coo2fast, zcsr_reshape)
 from qutip.settings import debug
 
 import qutip.logging_utils
@@ -66,40 +68,40 @@ def sp_fro_norm(data):
     return np.sqrt(out)
 
 
-def sp_inf_norm(data):
+def sp_inf_norm(A):
     """
     Infinity norm for sparse matrix
     """
-    return np.max([np.sum(np.abs(data.getrow(k).data))
-                   for k in range(data.shape[0])])
+    return zcsr_inf_norm(A.data, A.indices, 
+                A.indptr, A.shape[0], A.shape[1])
 
 
-def sp_L2_norm(data):
+def sp_L2_norm(A):
     """
     L2 norm sparse vector
     """
-    if 1 not in data.shape:
+    if 1 not in A.shape:
         raise TypeError("Use L2-norm only for vectors.")
 
-    if len(data.data):
-        return _dznrm2(data.data)
+    if len(A.data):
+        return _dznrm2(A.data)
     else:
         return 0
 
 
-def sp_max_norm(data):
+def sp_max_norm(A):
     """
     Max norm for sparse matrix
     """
-    return np.max(np.abs(data.data)) if any(data.data) else 0
+    return np.max(np.abs(A.data)) if any(A.data) else 0
 
 
-def sp_one_norm(data):
+def sp_one_norm(A):
     """
     One norm for sparse matrix
     """
-    return np.max(np.array([np.sum(np.abs((data.getcol(k).data)))
-                            for k in range(data.shape[1])]))
+    return zcsr_one_norm(A.data, A.indices, 
+                A.indptr, A.shape[0], A.shape[1])
 
 
 def sp_reshape(A, shape, format='csr'):
@@ -128,7 +130,10 @@ def sp_reshape(A, shape, format='csr'):
     """
     if not hasattr(shape, '__len__') or len(shape) != 2:
         raise ValueError('Shape must be a list of two integers')
-
+    
+    if format == 'csr':
+        return zcsr_reshape(A, shape[0], shape[1])
+    
     C = A.tocoo()
     nrows, ncols = C.shape
     size = nrows * ncols
@@ -139,11 +144,9 @@ def sp_reshape(A, shape, format='csr'):
 
     flat_indices = ncols * C.row + C.col
     new_row, new_col = divmod(flat_indices, shape[1])
-    B = sp.coo_matrix((C.data, (new_row, new_col)), shape=shape)
 
-    if format == 'csr':
-        return B.tocsr()
-    elif format == 'coo':
+    B = sp.coo_matrix((C.data, (new_row, new_col)), shape=shape)
+    if format == 'coo':
         return B
     elif format == 'csc':
         return B.tocsc()
@@ -383,7 +386,8 @@ def sp_expm(A, sparse=False):
     Sparse matrix exponential.    
     """
     if _isdiag(A.indices, A.indptr, A.shape[0]):
-        A.data = np.exp(A.data)
+        A = sp.diags(np.exp(A.diagonal()), shape=A.shape, 
+                    format='csr', dtype=complex)
         return A
     if sparse:
         E = spla.expm(A.tocsc())
@@ -443,7 +447,7 @@ def sp_permute(A, rperm=(), cperm=(), safe=True):
     data, ind, ptr = _sparse_permute(A.data, A.indices, A.indptr,
                                      nrows, ncols, rperm, cperm, flag)
     if kind == 'csr':
-        return sp.csr_matrix((data, ind, ptr), shape=shp, dtype=data.dtype)
+        return fast_csr_matrix((data, ind, ptr), shape=shp)
     elif kind == 'csc':
         return sp.csc_matrix((data, ind, ptr), shape=shp, dtype=data.dtype)
 
@@ -499,7 +503,7 @@ def sp_reverse_permute(A, rperm=(), cperm=(), safe=True):
                                              nrows, ncols, rperm, cperm, flag)
 
     if kind == 'csr':
-        return sp.csr_matrix((data, ind, ptr), shape=shp, dtype=data.dtype)
+        return fast_csr_matrix((data, ind, ptr), shape=shp)
     elif kind == 'csc':
         return sp.csc_matrix((data, ind, ptr), shape=shp, dtype=data.dtype)
 
